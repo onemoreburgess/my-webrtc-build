@@ -17,13 +17,13 @@ jobs:
           echo "${{ github.workspace }}/depot_tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
         shell: pwsh
 
-      - name: Verify vpython3 exists
+      - name: Verify vpython3.bat exists
         run: |
           if (-not (Test-Path "${{ github.workspace }}\depot_tools\vpython3.bat")) {
-            Write-Error "FATAL: vpython3.bat not found!"
+            Write-Error "FATAL: vpython3.bat not found in depot_tools!"
             exit 1
           }
-          Write-Host "✅ vpython3.bat is present."
+          Write-Host "✅ vpython3.bat is available."
         shell: pwsh
 
       - name: Set environment variables
@@ -32,10 +32,8 @@ jobs:
           echo "GYP_MSVS_OVERRIDE_PATH=C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
         shell: pwsh
 
-      - name: Fetch WebRTC source (with retry)
+      - name: Fetch WebRTC source (creates ./src/)
         run: |
-          mkdir webrtc
-          cd webrtc
           $retry = 0
           while ($retry -lt 3) {
             & "${{ github.workspace }}\depot_tools\vpython3.bat" fetch --nohooks webrtc
@@ -45,11 +43,16 @@ jobs:
             Start-Sleep -Seconds 15
           }
           if ($retry -eq 3) { exit 1 }
+
+          if (-not (Test-Path "${{ github.workspace }}\src")) {
+            Write-Error "FATAL: 'src' directory was not created by fetch!"
+            exit 1
+          }
+          Write-Host "✅ WebRTC source fetched into ./src/"
         shell: pwsh
 
       - name: Sync dependencies
         run: |
-          cd webrtc
           $retry = 0
           while ($retry -lt 3) {
             & "${{ github.workspace }}\depot_tools\vpython3.bat" gclient sync --nohooks --retry 5
@@ -63,18 +66,29 @@ jobs:
 
       - name: Generate build files with GN
         run: |
-          cd webrtc/src
+          cd src
           & "${{ github.workspace }}\depot_tools\gn.bat" gen out/Default --args="is_debug=false is_component_build=false target_cpu=\"x64\""
         shell: pwsh
 
       - name: Build video_replay
         run: |
-          cd webrtc/src
+          cd src
           & "${{ github.workspace }}\depot_tools\ninja.exe" -C out/Default video_replay
         shell: pwsh
 
-      - name: Upload artifact
+      - name: Verify build output
+        run: |
+          $exe = "${{ github.workspace }}\src\out\Default\video_replay.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "FATAL: video_replay.exe was not built!"
+            exit 1
+          }
+          Write-Host "✅ Build successful: $exe"
+          (Get-Item $exe).Length / 1MB | ForEach-Object { Write-Host "Size: $_ MB" }
+        shell: pwsh
+
+      - name: Upload video_replay.exe as artifact
         uses: actions/upload-artifact@v4
         with:
           name: video_replay-windows-x64
-          path: webrtc/src/out/Default/video_replay.exe
+          path: src/out/Default/video_replay.exe
