@@ -12,26 +12,18 @@ jobs:
 
       - name: Configure Git and Install depot_tools
         run: |
-          # 防止 .bat 文件被 Git 换行符转换破坏
           git config --global core.autocrlf false
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           echo "${{ github.workspace }}/depot_tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
         shell: pwsh
 
-      - name: Verify depot_tools content (debug)
+      - name: Verify vpython3 exists
         run: |
-          Write-Host "Listing depot_tools directory:"
-          dir "${{ github.workspace }}\depot_tools"
-          if (-not (Test-Path "${{ github.workspace }}\depot_tools\vpython.bat")) {
-            Write-Error "FATAL: vpython.bat is missing! Clone may have failed."
+          if (-not (Test-Path "${{ github.workspace }}\depot_tools\vpython3.bat")) {
+            Write-Error "FATAL: vpython3.bat not found!"
             exit 1
           }
-        shell: pwsh
-
-      - name: Install Python dependencies (fallback for gclient)
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install PySocks httplib2 urllib3 certifi six colorama
+          Write-Host "✅ vpython3.bat is present."
         shell: pwsh
 
       - name: Set environment variables
@@ -46,7 +38,7 @@ jobs:
           cd webrtc
           $retry = 0
           while ($retry -lt 3) {
-            & "${{ github.workspace }}\depot_tools\vpython.bat" fetch --nohooks webrtc
+            & "${{ github.workspace }}\depot_tools\vpython3.bat" fetch --nohooks webrtc
             if ($LASTEXITCODE -eq 0) { break }
             $retry++
             Write-Host "Fetch failed. Retry $retry in 15s..."
@@ -60,7 +52,7 @@ jobs:
           cd webrtc
           $retry = 0
           while ($retry -lt 3) {
-            & "${{ github.workspace }}\depot_tools\vpython.bat" gclient sync --nohooks --retry 5
+            & "${{ github.workspace }}\depot_tools\vpython3.bat" gclient sync --nohooks --retry 5
             if ($LASTEXITCODE -eq 0) { break }
             $retry++
             Write-Host "Sync failed. Retry $retry in 15s..."
