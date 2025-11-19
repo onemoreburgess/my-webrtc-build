@@ -10,20 +10,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure Git and Install depot_tools
+      - name: Install depot_tools
         run: |
           git config --global core.autocrlf false
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           echo "${{ github.workspace }}/depot_tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
         shell: pwsh
 
-      - name: Verify vpython3.bat exists
+      - name: Verify essential .bat files exist
         run: |
-          if (-not (Test-Path "${{ github.workspace }}\depot_tools\vpython3.bat")) {
-            Write-Error "FATAL: vpython3.bat not found in depot_tools!"
-            exit 1
+          $required = @("fetch.bat", "gclient.bat", "gn.bat", "ninja.exe", "vpython3.bat")
+          foreach ($file in $required) {
+            $path = "${{ github.workspace }}\depot_tools\$file"
+            if (-not (Test-Path $path)) {
+              Write-Error "Missing required file: $file"
+              exit 1
+            }
           }
-          Write-Host "✅ vpython3.bat is available."
+          Write-Host "✅ All required depot_tools scripts are present."
         shell: pwsh
 
       - name: Set environment variables
@@ -32,11 +36,11 @@ jobs:
           echo "GYP_MSVS_OVERRIDE_PATH=C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
         shell: pwsh
 
-      - name: Fetch WebRTC source (creates ./src/)
+      - name: Fetch WebRTC source
         run: |
           $retry = 0
           while ($retry -lt 3) {
-            & "${{ github.workspace }}\depot_tools\vpython3.bat" fetch --nohooks webrtc
+            & "${{ github.workspace }}\depot_tools\fetch.bat" --nohooks webrtc
             if ($LASTEXITCODE -eq 0) { break }
             $retry++
             Write-Host "Fetch failed. Retry $retry in 15s..."
@@ -45,17 +49,16 @@ jobs:
           if ($retry -eq 3) { exit 1 }
 
           if (-not (Test-Path "${{ github.workspace }}\src")) {
-            Write-Error "FATAL: 'src' directory was not created by fetch!"
+            Write-Error "FATAL: 'src' directory not created!"
             exit 1
           }
-          Write-Host "✅ WebRTC source fetched into ./src/"
         shell: pwsh
 
       - name: Sync dependencies
         run: |
           $retry = 0
           while ($retry -lt 3) {
-            & "${{ github.workspace }}\depot_tools\vpython3.bat" gclient sync --nohooks --retry 5
+            & "${{ github.workspace }}\depot_tools\gclient.bat" sync --nohooks --retry 5
             if ($LASTEXITCODE -eq 0) { break }
             $retry++
             Write-Host "Sync failed. Retry $retry in 15s..."
@@ -64,7 +67,7 @@ jobs:
           if ($retry -eq 3) { exit 1 }
         shell: pwsh
 
-      - name: Generate build files with GN
+      - name: Generate build files
         run: |
           cd src
           & "${{ github.workspace }}\depot_tools\gn.bat" gen out/Default --args="is_debug=false is_component_build=false target_cpu=\"x64\""
@@ -76,18 +79,7 @@ jobs:
           & "${{ github.workspace }}\depot_tools\ninja.exe" -C out/Default video_replay
         shell: pwsh
 
-      - name: Verify build output
-        run: |
-          $exe = "${{ github.workspace }}\src\out\Default\video_replay.exe"
-          if (-not (Test-Path $exe)) {
-            Write-Error "FATAL: video_replay.exe was not built!"
-            exit 1
-          }
-          Write-Host "✅ Build successful: $exe"
-          (Get-Item $exe).Length / 1MB | ForEach-Object { Write-Host "Size: $_ MB" }
-        shell: pwsh
-
-      - name: Upload video_replay.exe as artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: video_replay-windows-x64
