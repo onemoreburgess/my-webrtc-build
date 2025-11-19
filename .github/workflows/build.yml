@@ -14,7 +14,9 @@ jobs:
         run: |
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           echo "${{ github.workspace }}/depot_tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
-
+      - name: Install Python dependencies for depot_tools
+        run: |
+          python -m pip install httplib2 urllib3 certifi six
       - name: Set environment variables
         run: |
           echo "DEPOT_TOOLS_WIN_TOOLCHAIN=0" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
