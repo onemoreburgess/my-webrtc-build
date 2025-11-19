@@ -1,49 +1,115 @@
-- name: Install depot_tools
-  run: |
-    git config --global core.autocrlf false
-    git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
-    echo "${{ github.workspace }}/depot_tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
-  shell: pwsh
+name: Build video_replay for Windows
 
-- name: Verify essential depot_tools scripts exist
-  run: |
-    $scripts = @("fetch.bat", "gclient.bat", "gn.bat", "vpython3.bat")
-    foreach ($s in $scripts) {
-      if (-not (Test-Path "${{ github.workspace }}\depot_tools\$s")) {
-        Write-Error "Missing: $s"
-        exit 1
-      }
-    }
-    Write-Host "✅ depot_tools scripts verified."
-  shell: pwsh
+on:
+  workflow_dispatch:  # 允许手动触发
 
-- name: Set environment variables
-  run: |
-    echo "DEPOT_TOOLS_WIN_TOOLCHAIN=0" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-  shell: pwsh
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-- name: Fetch WebRTC source
-  run: |
-    & "${{ github.workspace }}\depot_tools\fetch.bat" --nohooks webrtc
-    if (-not (Test-Path "${{ github.workspace }}\src")) {
-      Write-Error "Fetch did not create src/"
-      exit 1
-    }
-  shell: pwsh
+      - name: Install depot_tools
+        run: |
+          git config --global core.autocrlf false
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          echo "${{ github.workspace }}/depot_tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+        shell: pwsh
 
-- name: Sync dependencies
-  run: |
-    & "${{ github.workspace }}\depot_tools\gclient.bat" sync --nohooks
-  shell: pwsh
+      - name: Verify essential depot_tools scripts exist
+        run: |
+          $scripts = @("fetch.bat", "gclient.bat", "gn.bat", "vpython3.bat")
+          foreach ($s in $scripts) {
+            $path = "${{ github.workspace }}\depot_tools\$s"
+            if (-not (Test-Path $path)) {
+              Write-Error "FATAL: Missing required script: $s"
+              exit 1
+            }
+          }
+          Write-Host "✅ All required depot_tools scripts are present."
+        shell: pwsh
 
-- name: Generate build files
-  run: |
-    cd src
-    & "${{ github.workspace }}\depot_tools\gn.bat" gen out/Default --args="is_debug=false target_cpu=\"x64\""
-  shell: pwsh
+      - name: Set environment variables
+        run: |
+          echo "DEPOT_TOOLS_WIN_TOOLCHAIN=0" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+        shell: pwsh
 
-- name: Build video_replay
-  run: |
-    cd src
-    & "${{ github.workspace }}\depot_tools\ninja.exe" -C out/Default video_replay
-  shell: pwsh
+      - name: Fetch WebRTC source (creates ./src/)
+        run: |
+          $retry = 0
+          while ($retry -lt 3) {
+            & "${{ github.workspace }}\depot_tools\fetch.bat" --nohooks webrtc
+            if ($LASTEXITCODE -eq 0) { break }
+            $retry++
+            Write-Host "Fetch failed. Retry $retry in 15s..."
+            Start-Sleep -Seconds 15
+          }
+          if ($retry -eq 3) {
+            Write-Error "Fetch failed after 3 attempts."
+            exit 1
+          }
+
+          if (-not (Test-Path "${{ github.workspace }}\src")) {
+            Write-Error "FATAL: 'src' directory was not created by fetch!"
+            exit 1
+          }
+          Write-Host "✅ WebRTC source fetched into ./src/"
+        shell: pwsh
+
+      - name: Sync dependencies
+        run: |
+          $retry = 0
+          while ($retry -lt 3) {
+            & "${{ github.workspace }}\depot_tools\gclient.bat" sync --nohooks --retry 5
+            if ($LASTEXITCODE -eq 0) { break }
+            $retry++
+            Write-Host "gclient sync failed. Retry $retry in 15s..."
+            Start-Sleep -Seconds 15
+          }
+          if ($retry -eq 3) {
+            Write-Error "gclient sync failed after 3 attempts."
+            exit 1
+          }
+          Write-Host "✅ Dependencies synced."
+        shell: pwsh
+
+      - name: Generate build files with GN
+        run: |
+          cd src
+          & "${{ github.workspace }}\depot_tools\gn.bat" gen out/Default --args="is_debug=false is_component_build=false target_cpu=\"x64\""
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "GN generation failed."
+            exit 1
+          }
+          Write-Host "✅ Build files generated in out/Default"
+        shell: pwsh
+
+      - name: Build video_replay
+        run: |
+          cd src
+          # First call may download ninja.exe — that's expected
+          & "${{ github.workspace }}\depot_tools\ninja.exe" -C out/Default video_replay
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Build failed."
+            exit 1
+          }
+          Write-Host "✅ video_replay built successfully."
+        shell: pwsh
+
+      - name: Verify and show build output
+        run: |
+          $exe = "${{ github.workspace }}\src\out\Default\video_replay.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "FATAL: video_replay.exe not found after build!"
+            exit 1
+          }
+          $sizeMB = [math]::Round((Get-Item $exe).Length / 1MB, 2)
+          Write-Host "✅ Build successful! Size: $sizeMB MB"
+        shell: pwsh
+
+      - name: Upload video_replay.exe as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: video_replay-windows-x64
+          path: src/out/Default/video_replay.exe
