@@ -1,0 +1,62 @@
+name: Build video_replay for Windows
+
+on:
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install depot_tools
+        run: |
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          echo "${{ github.workspace }}/depot_tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Set environment variables
+        run: |
+          echo "DEPOT_TOOLS_WIN_TOOLCHAIN=0" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          echo "GYP_MSVS_OVERRIDE_PATH=C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Fetch WebRTC
+        run: |
+          mkdir webrtc
+          cd webrtc
+          $retry = 0
+          while ($retry -lt 3) {
+            & python ..\depot_tools\fetch.py --nohooks webrtc
+            if ($LASTEXITCODE -eq 0) { break }
+            $retry++
+            Start-Sleep -Seconds 10
+          }
+        shell: pwsh
+
+      - name: Sync dependencies
+        run: |
+          cd webrtc
+          $retry = 0
+          while ($retry -lt 3) {
+            & python ../depot_tools/gclient.py sync --nohooks --retry 5
+            if ($LASTEXITCODE -eq 0) { break }
+            $retry++
+            Start-Sleep -Seconds 10
+          }
+        shell: pwsh
+
+      - name: Generate build files
+        run: |
+          cd webrtc/src
+          .\..\..\depot_tools\gn.bat gen out/Default --args="is_debug=false is_component_build=false target_cpu=\"x64\""
+
+      - name: Build video_replay
+        run: |
+          cd webrtc/src
+          .\..\..\depot_tools\ninja.exe -C out/Default video_replay
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: video_replay-windows-x64
+          path: webrtc/src/out/Default/video_replay.exe
