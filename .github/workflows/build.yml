@@ -10,38 +10,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install depot_tools
+      - name: Install depot_tools and use vpython
         run: |
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           echo "${{ github.workspace }}/depot_tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
-      - name: Install Python dependencies for depot_tools
-        run: |
-          python -m pip install "httplib2[socks]" urllib3 certifi six
         shell: pwsh
+
       - name: Set environment variables
         run: |
           echo "DEPOT_TOOLS_WIN_TOOLCHAIN=0" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           echo "GYP_MSVS_OVERRIDE_PATH=C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+        shell: pwsh
 
-      - name: Fetch WebRTC (with retry)
+      - name: Fetch WebRTC using vpython
         run: |
           mkdir webrtc
           cd webrtc
           $retry = 0
           while ($retry -lt 3) {
-            & python ..\depot_tools\fetch.py --nohooks webrtc
+            & ..\depot_tools\vpython.bat fetch --nohooks webrtc
             if ($LASTEXITCODE -eq 0) { break }
             $retry++
             Start-Sleep -Seconds 10
           }
         shell: pwsh
 
-      - name: Sync dependencies (with retry)
+      - name: Sync dependencies using vpython
         run: |
           cd webrtc
           $retry = 0
           while ($retry -lt 3) {
-            & python ../depot_tools/gclient.py sync --nohooks --retry 5
+            & ..\depot_tools\vpython.bat gclient sync --nohooks --retry 5
             if ($LASTEXITCODE -eq 0) { break }
             $retry++
             Start-Sleep -Seconds 10
@@ -52,11 +51,13 @@ jobs:
         run: |
           cd webrtc/src
           .\..\..\depot_tools\gn.bat gen out/Default --args="is_debug=false is_component_build=false target_cpu=\"x64\""
+        shell: pwsh
 
       - name: Build video_replay
         run: |
           cd webrtc/src
           .\..\..\depot_tools\ninja.exe -C out/Default video_replay
+        shell: pwsh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
