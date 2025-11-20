@@ -1,7 +1,7 @@
 name: Build video_replay for Windows
 
 on:
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:  # 允许手动触发构建
 
 jobs:
   build:
@@ -10,9 +10,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install depot_tools
+      - name: Configure Git for depot_tools (suppress warnings)
         run: |
           git config --global core.autocrlf false
+          git config --global core.filemode false
+          git config --global core.fscache true
+          git config --global core.preloadindex true
+          git config --global depot-tools.allowGlobalGitConfig false
+        shell: pwsh
+
+      - name: Install depot_tools
+        run: |
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           echo "${{ github.workspace }}/depot_tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
         shell: pwsh
@@ -61,7 +69,7 @@ jobs:
         run: |
           $retry = 0
           while ($retry -lt 3) {
-            & "${{ github.workspace }}\depot_tools\gclient.bat" sync --nohooks --retry 5
+            & "${{ github.workspace }}\depot_tools\gclient.bat" sync --nohooks
             if ($LASTEXITCODE -eq 0) { break }
             $retry++
             Write-Host "gclient sync failed. Retry $retry in 15s..."
@@ -88,7 +96,6 @@ jobs:
       - name: Build video_replay
         run: |
           cd src
-          # First call may download ninja.exe — that's expected
           & "${{ github.workspace }}\depot_tools\ninja.exe" -C out/Default video_replay
           if ($LASTEXITCODE -ne 0) {
             Write-Error "Build failed."
