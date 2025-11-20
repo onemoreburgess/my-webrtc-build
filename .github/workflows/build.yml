@@ -10,7 +10,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取完整历史（确保 git describe 可用）
+          fetch-depth: 0  # Full history for git describe
 
       - name: Configure Git for depot_tools
         shell: pwsh
@@ -30,7 +30,7 @@ jobs:
       - name: Verify essential depot_tools scripts exist
         shell: pwsh
         run: |
-          $scripts = @("fetch.bat", "gclient.bat", "gn.bat", "vpython3.bat")
+          $scripts = @("fetch.bat", "gclient.bat", "gn.bat", "autoninja.bat", "vpython3.bat")
           foreach ($s in $scripts) {
             $path = "${{ github.workspace }}\depot_tools\$s"
             if (-not (Test-Path $path)) {
@@ -49,7 +49,7 @@ jobs:
         run: |
           $retry = 0
           while ($retry -lt 3) {
-            & "${{ github.workspace }}\depot_tools\fetch.bat" webrtc  # 注意：不再加 --nohooks
+            & "${{ github.workspace }}\depot_tools\fetch.bat" webrtc
             if ($LASTEXITCODE -eq 0) { break }
             $retry++
             Write-Host "Fetch failed. Retry $retry in 15s..."
@@ -64,12 +64,12 @@ jobs:
             exit 1
           }
 
-      - name: Sync dependencies (WITH hooks)
+      - name: Sync dependencies (with hooks)
         shell: pwsh
         run: |
           $retry = 0
           while ($retry -lt 3) {
-            & "${{ github.workspace }}\depot_tools\gclient.bat" sync  # 移除 --nohooks！
+            & "${{ github.workspace }}\depot_tools\gclient.bat" sync
             if ($LASTEXITCODE -eq 0) { break }
             $retry++
             Write-Host "gclient sync failed. Retry $retry in 15s..."
@@ -91,28 +91,29 @@ jobs:
           )
           echo ✅ Build files generated.
 
-      - name: Build video_replay
-        shell: cmd
+      - name: Build video_replay using autoninja
+        shell: pwsh
         run: |
           cd src
-          "%GITHUB_WORKSPACE%\depot_tools\ninja.exe" -C out/Default video_replay
-          if %ERRORLEVEL% NEQ 0 (
-            echo Build failed.
-            exit /b 1
-          )
-          echo ✅ Build succeeded.
+          & "${{ github.workspace }}\depot_tools\autoninja.bat" -C out/Default video_replay
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Build failed."
+            exit 1
+          }
+          Write-Host "✅ video_replay built successfully."
 
-      - name: Verify output
+      - name: Verify and show build output
         shell: pwsh
         run: |
           $exe = "${{ github.workspace }}\src\out\Default\video_replay.exe"
           if (-not (Test-Path $exe)) {
-            Write-Error "video_replay.exe not found!"
+            Write-Error "FATAL: video_replay.exe not found after build!"
             exit 1
           }
-          Write-Host "✅ Build successful! Size: $([math]::Round((Get-Item $exe).Length / 1MB, 2)) MB"
+          $sizeMB = [math]::Round((Get-Item $exe).Length / 1MB, 2)
+          Write-Host "✅ Build successful! Size: $sizeMB MB"
 
-      - name: Upload artifact
+      - name: Upload video_replay.exe as artifact
         uses: actions/upload-artifact@v4
         with:
           name: video_replay-windows-x64
