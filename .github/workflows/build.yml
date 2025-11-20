@@ -1,7 +1,7 @@
 name: Build video_replay for Windows
 
 on:
-  workflow_dispatch:  # 允许手动触发构建
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
   build:
@@ -85,7 +85,7 @@ jobs:
       - name: Generate build files with GN
         run: |
           cd src
-          & "${{ github.workspace }}\depot_tools\gn.bat" gen out/Default --args="is_debug=false is_component_build=false target_cpu=\"x64\""
+          & "${{ github.workspace }}\depot_tools\gn.bat" gen out/Default --args="is_debug=false is_component_build=false target_cpu=x64"
           if ($LASTEXITCODE -ne 0) {
             Write-Error "GN generation failed."
             exit 1
