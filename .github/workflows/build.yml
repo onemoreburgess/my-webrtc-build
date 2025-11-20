@@ -11,21 +11,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure Git for depot_tools (suppress warnings)
+        shell: pwsh
         run: |
           git config --global core.autocrlf false
           git config --global core.filemode false
           git config --global core.fscache true
           git config --global core.preloadindex true
           git config --global depot-tools.allowGlobalGitConfig false
-        shell: pwsh
 
       - name: Install depot_tools
+        shell: pwsh
         run: |
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           echo "${{ github.workspace }}/depot_tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
-        shell: pwsh
 
       - name: Verify essential depot_tools scripts exist
+        shell: pwsh
         run: |
           $scripts = @("fetch.bat", "gclient.bat", "gn.bat", "vpython3.bat")
           foreach ($s in $scripts) {
@@ -36,14 +37,14 @@ jobs:
             }
           }
           Write-Host "✅ All required depot_tools scripts are present."
-        shell: pwsh
 
       - name: Set environment variables
+        shell: pwsh
         run: |
           echo "DEPOT_TOOLS_WIN_TOOLCHAIN=0" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-        shell: pwsh
 
       - name: Fetch WebRTC source (creates ./src/)
+        shell: pwsh
         run: |
           $retry = 0
           while ($retry -lt 3) {
@@ -63,9 +64,9 @@ jobs:
             exit 1
           }
           Write-Host "✅ WebRTC source fetched into ./src/"
-        shell: pwsh
 
       - name: Sync dependencies
+        shell: pwsh
         run: |
           $retry = 0
           while ($retry -lt 3) {
@@ -80,31 +81,31 @@ jobs:
             exit 1
           }
           Write-Host "✅ Dependencies synced."
-        shell: pwsh
 
       - name: Generate build files with GN
+        shell: cmd
         run: |
           cd src
-          & "${{ github.workspace }}\depot_tools\gn.bat" gen out/Default --args="is_debug=false is_component_build=false target_cpu=x64"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "GN generation failed."
-            exit 1
-          }
-          Write-Host "✅ Build files generated in out/Default"
-        shell: pwsh
+          "%GITHUB_WORKSPACE%\depot_tools\gn.bat" gen out/Default --args="is_debug=false is_component_build=false target_cpu=\"x64\""
+          if %ERRORLEVEL% NEQ 0 (
+            echo GN generation failed.
+            exit /b 1
+          )
+          echo ✅ Build files generated in out/Default
 
       - name: Build video_replay
+        shell: cmd
         run: |
           cd src
-          & "${{ github.workspace }}\depot_tools\ninja.exe" -C out/Default video_replay
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Build failed."
-            exit 1
-          }
-          Write-Host "✅ video_replay built successfully."
-        shell: pwsh
+          "%GITHUB_WORKSPACE%\depot_tools\ninja.exe" -C out/Default video_replay
+          if %ERRORLEVEL% NEQ 0 (
+            echo Build failed.
+            exit /b 1
+          )
+          echo ✅ video_replay built successfully.
 
       - name: Verify and show build output
+        shell: pwsh
         run: |
           $exe = "${{ github.workspace }}\src\out\Default\video_replay.exe"
           if (-not (Test-Path $exe)) {
@@ -113,7 +114,6 @@ jobs:
           }
           $sizeMB = [math]::Round((Get-Item $exe).Length / 1MB, 2)
           Write-Host "✅ Build successful! Size: $sizeMB MB"
-        shell: pwsh
 
       - name: Upload video_replay.exe as artifact
         uses: actions/upload-artifact@v4
