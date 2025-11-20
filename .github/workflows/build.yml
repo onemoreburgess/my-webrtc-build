@@ -1,7 +1,7 @@
 name: Build video_replay for Windows
 
 on:
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -9,8 +9,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史（确保 git describe 可用）
 
-      - name: Configure Git for depot_tools (suppress warnings)
+      - name: Configure Git for depot_tools
         shell: pwsh
         run: |
           git config --global core.autocrlf false
@@ -36,19 +38,18 @@ jobs:
               exit 1
             }
           }
-          Write-Host "✅ All required depot_tools scripts are present."
 
       - name: Set environment variables
         shell: pwsh
         run: |
           echo "DEPOT_TOOLS_WIN_TOOLCHAIN=0" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
-      - name: Fetch WebRTC source (creates ./src/)
+      - name: Fetch WebRTC source
         shell: pwsh
         run: |
           $retry = 0
           while ($retry -lt 3) {
-            & "${{ github.workspace }}\depot_tools\fetch.bat" --nohooks webrtc
+            & "${{ github.workspace }}\depot_tools\fetch.bat" webrtc  # 注意：不再加 --nohooks
             if ($LASTEXITCODE -eq 0) { break }
             $retry++
             Write-Host "Fetch failed. Retry $retry in 15s..."
@@ -58,19 +59,17 @@ jobs:
             Write-Error "Fetch failed after 3 attempts."
             exit 1
           }
-
           if (-not (Test-Path "${{ github.workspace }}\src")) {
-            Write-Error "FATAL: 'src' directory was not created by fetch!"
+            Write-Error "FATAL: 'src' directory missing!"
             exit 1
           }
-          Write-Host "✅ WebRTC source fetched into ./src/"
 
-      - name: Sync dependencies
+      - name: Sync dependencies (WITH hooks)
         shell: pwsh
         run: |
           $retry = 0
           while ($retry -lt 3) {
-            & "${{ github.workspace }}\depot_tools\gclient.bat" sync --nohooks
+            & "${{ github.workspace }}\depot_tools\gclient.bat" sync  # 移除 --nohooks！
             if ($LASTEXITCODE -eq 0) { break }
             $retry++
             Write-Host "gclient sync failed. Retry $retry in 15s..."
@@ -80,7 +79,6 @@ jobs:
             Write-Error "gclient sync failed after 3 attempts."
             exit 1
           }
-          Write-Host "✅ Dependencies synced."
 
       - name: Generate build files with GN
         shell: cmd
@@ -91,7 +89,7 @@ jobs:
             echo GN generation failed.
             exit /b 1
           )
-          echo ✅ Build files generated in out/Default
+          echo ✅ Build files generated.
 
       - name: Build video_replay
         shell: cmd
@@ -102,20 +100,19 @@ jobs:
             echo Build failed.
             exit /b 1
           )
-          echo ✅ video_replay built successfully.
+          echo ✅ Build succeeded.
 
-      - name: Verify and show build output
+      - name: Verify output
         shell: pwsh
         run: |
           $exe = "${{ github.workspace }}\src\out\Default\video_replay.exe"
           if (-not (Test-Path $exe)) {
-            Write-Error "FATAL: video_replay.exe not found after build!"
+            Write-Error "video_replay.exe not found!"
             exit 1
           }
-          $sizeMB = [math]::Round((Get-Item $exe).Length / 1MB, 2)
-          Write-Host "✅ Build successful! Size: $sizeMB MB"
+          Write-Host "✅ Build successful! Size: $([math]::Round((Get-Item $exe).Length / 1MB, 2)) MB"
 
-      - name: Upload video_replay.exe as artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: video_replay-windows-x64
